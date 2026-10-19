@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import formRoutes from "./routes/form.routes.js";
 
 const app = express();
 
@@ -23,6 +24,8 @@ app.use(
         limit: 100,
     })
 );
+
+app.use("/api/forms", formRoutes);
 
 // Temporary endpoint to verify that the backend works.
 app.get("/api/health", (req, res) => {
