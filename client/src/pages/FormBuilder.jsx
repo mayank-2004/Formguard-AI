@@ -37,6 +37,8 @@ export default function FormBuilder() {
     const [loading, setLoading] = useState(Boolean(id));
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
+    const [status, setStatus] = useState("draft");
+    const [consistencyRules, setConsistencyRules] = useState([]);
 
     // If an id exists, load the existing form for editing.
     useEffect(() => {
@@ -56,6 +58,8 @@ export default function FormBuilder() {
                 setTitle(form.title)
                 setDescription(form.description || "")
                 setFields(form.fields || [])
+                setStatus(form.status || "draft");
+                setConsistencyRules(form.consistencyRules || []);
             } catch (err) {
                 if (active) {
                     setError(err.message || "Unable to load this form.");
@@ -106,6 +110,49 @@ export default function FormBuilder() {
         );
     }
 
+    function addConsistencyRule() {
+        setConsistencyRules((current) => [
+            ...current,
+            {
+                ruleId: crypto.randomUUID(),
+                type: "required_if",
+                sourceFieldId: "",
+                sourceValue: "",
+                targetFieldId: "",
+                targetValue: "",
+                message: "",
+            },
+        ]);
+    }
+
+    function updateConsistencyRule(ruleId, key, value) {
+        setConsistencyRules((current) => current.map((rule) => {
+            if (rule.ruleId !== ruleId) {
+                return rule;
+            }
+
+            if (key === "type") {
+                return {
+                    ...rule,
+                    type: value,
+                    sourceValue: "",
+                    targetValue: "",
+                };
+            }
+
+            return {
+                ...rule,
+                [key]: value,
+            }
+        }));
+    }
+
+    function removeConsistencyRule(ruleId) {
+        setConsistencyRules((current) =>
+            current.filter((rule) => rule.ruleId !== ruleId)
+        );
+    }
+
     async function handleSave(event) {
         event.preventDefault();
         setError("");
@@ -146,6 +193,52 @@ export default function FormBuilder() {
             return;
         }
 
+        const fieldIdSet = new Set(
+            normalizedFields.map((field) => field.fieldId)
+        );
+
+        for (const rule of consistencyRules) {
+            if (!fieldIdSet.has(rule.sourceFieldId) ||
+                !fieldIdSet.has(rule.targetFieldId)
+            ) {
+                setError("Choose valid questions for every consistency rule.");
+                return;
+            }
+
+            if (rule.sourceFieldId === rule.targetFieldId) {
+                setError("A consistency rule must be two different questions.");
+                return;
+            }
+
+            if (rule.type === "required_if" && !rule.sourceValue.trim()) {
+                setError("Enter the answer that activates each required field rule.")
+                return;
+            }
+
+            if (
+                rule.type === "conflicts_with" &&
+                (!rule.sourceValue.trim() || !rule.targetValue.trim())
+            ) {
+                setError("Enter both answers for every conflict rule.");
+                return;
+            }
+
+            if (rule.type === "date_order") {
+                const sourceField = normalizedFields.find(
+                    (field) => field.fieldId === rule.sourceFieldId
+                );
+
+                const targetField = normalizedFields.find(
+                    (field) => field.fieldId === rule.targetFieldId
+                );
+
+                if (sourceField?.type !== "date" || targetField?.type !== "date") {
+                    setError("Date-order rules required two date questions.");
+                    return;
+                }
+            }
+        }
+
         setSaving(true);
 
         try {
@@ -153,8 +246,19 @@ export default function FormBuilder() {
                 title: title.trim(),
                 description: description.trim(),
                 fields: normalizedFields,
-                status: "draft",
+                consistencyRules: consistencyRules.map((rule) => ({
+                    ...rule,
+                    sourceValue: rule.sourceValue.trim(),
+                    targetValue: rule.targetValue.trim(),
+                    message: rule.message.trim(),
+                })),
+                status: id ? status : "draft",
             };
+
+            console.log(
+                "Consistency rules being saved:",
+                JSON.stringify(payload.consistencyRules, null, 2)
+            );
 
             if (id) {
                 await apiRequest(`/forms/${id}`, {
@@ -376,6 +480,234 @@ export default function FormBuilder() {
                             <p className="mt-2 text-sm text-slate-500">
                                 Click “Add question” to begin creating your form.
                             </p>
+                        </div>
+                    )}
+                </section>
+
+                <section className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h2 className="text-lg font-semibold">
+                                Consistency rules
+                            </h2>
+
+                            <p className="mt-1 text-sm text-slate-500">
+                                Define relationships between answers.
+                            </p>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={addConsistencyRule}
+                            disabled={fields.length < 2 || consistencyRules.length >= 50}
+                            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+                        >
+                            + Add rule
+                        </button>
+                    </div>
+
+                    {consistencyRules.map((rule, index) => {
+                        const candidates =
+                            rule.type === "date_order"
+                                ? fields.filter((field) => field.type === "date")
+                                : fields;
+
+                        return (
+                            <div
+                                key={rule.ruleId}
+                                className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5"
+                            >
+                                <div className="flex items-center justify-between gap-3">
+                                    <h3 className="font-semibold">
+                                        Rule {index + 1}
+                                    </h3>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => removeConsistencyRule(rule.ruleId)}
+                                        className="rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                                    >
+                                        Remove
+                                    </button>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium">
+                                        Rule type
+                                    </label>
+
+                                    <select
+                                        value={rule.type}
+                                        onChange={(event) =>
+                                            updateConsistencyRule(
+                                                rule.ruleId,
+                                                "type",
+                                                event.target.value
+                                            )
+                                        }
+                                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3"
+                                    >
+                                        <option value="required_if">
+                                            Require an answer conditionally
+                                        </option>
+
+                                        <option value="conflicts_with">
+                                            Flag potentially contradictory answers
+                                        </option>
+
+                                        <option value="date_order">
+                                            Check date order
+                                        </option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium">
+                                        {rule.type === "date_order"
+                                            ? "Start date question"
+                                            : "Source question"}
+                                    </label>
+
+                                    <select
+                                        value={rule.sourceFieldId}
+                                        onChange={(event) =>
+                                            updateConsistencyRule(
+                                                rule.ruleId,
+                                                "sourceFieldId",
+                                                event.target.value
+                                            )
+                                        }
+                                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3"
+                                    >
+                                        <option value="">Choose a question</option>
+
+                                        {candidates.map((field) => (
+                                            <option key={field.fieldId} value={field.fieldId}>
+                                                {field.label || "Untitled question"}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {rule.type !== "date_order" && (
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium">
+                                            When the source answer equals
+                                        </label>
+
+                                        <input
+                                            value={rule.sourceValue}
+                                            onChange={(event) =>
+                                                updateConsistencyRule(
+                                                    rule.ruleId,
+                                                    "sourceValue",
+                                                    event.target.value
+                                                )
+                                            }
+                                            placeholder="e.g. Yes"
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                                        />
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium">
+                                        {rule.type === "date_order"
+                                            ? "End date question"
+                                            : "Target question"}
+                                    </label>
+
+                                    <select
+                                        value={rule.targetFieldId}
+                                        onChange={(event) =>
+                                            updateConsistencyRule(
+                                                rule.ruleId,
+                                                "targetFieldId",
+                                                event.target.value
+                                            )
+                                        }
+                                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3"
+                                    >
+                                        <option value="">Choose a question</option>
+
+                                        {candidates.map((field) => (
+                                            <option key={field.fieldId} value={field.fieldId}>
+                                                {field.label || "Untitled question"}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {rule.type === "conflicts_with" && (
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium">
+                                            And the target answer equals
+                                        </label>
+
+                                        <input
+                                            value={rule.targetValue}
+                                            onChange={(event) =>
+                                                updateConsistencyRule(
+                                                    rule.ruleId,
+                                                    "targetValue",
+                                                    event.target.value
+                                                )
+                                            }
+                                            placeholder="e.g. Unemployed"
+                                            className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                                        />
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium">
+                                        Explanation shown to the respondent (optional)
+                                    </label>
+
+                                    <input
+                                        value={rule.message}
+                                        onChange={(event) =>
+                                            updateConsistencyRule(
+                                                rule.ruleId,
+                                                "message",
+                                                event.target.value
+                                            )
+                                        }
+                                        maxLength={300}
+                                        placeholder="Explain what the respondent should review"
+                                        className="w-full rounded-xl border border-slate-300 px-4 py-3"
+                                    />
+                                </div>
+
+                                {rule.type === "required_if" && (
+                                    <p className="text-xs leading-5 text-slate-500">
+                                        If the source answer matches, the target question must
+                                        not be left blank.
+                                    </p>
+                                )}
+
+                                {rule.type === "conflicts_with" && (
+                                    <p className="text-xs leading-5 text-slate-500">
+                                        If both answers match the configured values, the
+                                        respondent will receive a warning and can review or
+                                        confirm the submission.
+                                    </p>
+                                )}
+
+                                {rule.type === "date_order" && (
+                                    <p className="text-xs leading-5 text-slate-500">
+                                        The end date must be the same as or later than the
+                                        start date.
+                                    </p>
+                                )}
+                            </div>
+                        );
+                    })}
+
+                    {consistencyRules.length === 0 && (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
+                            No consistency rules configured. You can add rules after
+                            creating at least two questions.
                         </div>
                     )}
                 </section>

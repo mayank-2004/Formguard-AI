@@ -9,6 +9,7 @@ export default function Forms() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState("")
     const [deletingId, setDeletingId] = useState(null)
+    const [updatingId, setUpdatingId] = useState(null);
 
     async function loadForms() {
         setLoading(true);
@@ -50,6 +51,35 @@ export default function Forms() {
             setError(error.message || "Unable to delete this form.");
         } finally {
             setDeletingId(null);
+        }
+    }
+
+    async function handleTogglePublish(form) {
+        const nextStatus = form.status === "published" ? "draft" : "published";
+
+        setUpdatingId(form._id);
+        setError("");
+
+        try {
+            const updatedForm = await apiRequest(`/forms/${form._id}`, {
+                method: "PUT",
+                body: {
+                    title: form.title,
+                    description: form.description || "",
+                    fields: form.fields,
+                    status: nextStatus,
+                },
+            });
+
+            setForms((current) =>
+                current.map((item) =>
+                    item._id === form._id ? updatedForm : item
+                )
+            );
+        } catch (error) {
+            setError(error.message || "Unable to update form status.");
+        } finally {
+            setUpdatingId(null);
         }
     }
 
@@ -175,6 +205,29 @@ export default function Forms() {
                                 >
                                     <Trash2 size={17} />
                                 </button>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => handleTogglePublish(form)}
+                                    disabled={updatingId === form._id}
+                                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+                                >
+                                    {updatingId === form._id
+                                        ? "Updating..."
+                                        : form.status === "published"
+                                            ? "Unpublish"
+                                            : "Publish"}
+                                </button>
+
+                                {form.status === "published" && (
+                                    <Link
+                                        to={`/respond/${form._id}`}
+                                        className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                                    >
+                                        Open public form →
+                                    </Link>
+                                )}
                             </div>
                         </article>
                     ))}

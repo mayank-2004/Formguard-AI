@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard.jsx";
 import Forms from "./pages/Forms.jsx";
 import Submissions from "./pages/Submissions.jsx";
 import FormBuilder from './pages/FormBuilder.jsx';
+import PublicForm from "./pages/PublicForm.jsx";
 import './App.css'
 
 function App() {
@@ -11,6 +12,10 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route 
+          path="/respond/:id"
+          element={<PublicForm />}
+        />
         <Route element={<AppLayout />}>
           <Route
             path="/"
