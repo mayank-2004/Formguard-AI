@@ -5,6 +5,7 @@ import Forms from "./pages/Forms.jsx";
 import Submissions from "./pages/Submissions.jsx";
 import FormBuilder from './pages/FormBuilder.jsx';
 import PublicForm from "./pages/PublicForm.jsx";
+import SubmissionDetails from './pages/SubmissionDetails.jsx';
 import './App.css'
 
 function App() {
@@ -12,7 +13,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route 
+        <Route
           path="/respond/:id"
           element={<PublicForm />}
         />
@@ -32,12 +33,12 @@ function App() {
             element={<Forms />}
           />
 
-          <Route 
+          <Route
             path="/forms/new"
             element={<FormBuilder />}
           />
 
-          <Route 
+          <Route
             path="/forms/:id/edit"
             element={<FormBuilder />}
           />
@@ -45,6 +46,11 @@ function App() {
           <Route
             path="/submissions"
             element={<Submissions />}
+          />
+
+          <Route
+            path="/submissions/:id"
+            element={<SubmissionDetails />}
           />
 
           <Route

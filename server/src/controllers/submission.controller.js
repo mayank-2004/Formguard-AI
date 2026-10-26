@@ -1,5 +1,5 @@
-import mongoose from "mongoose";
-import { parse, success, z } from "zod"
+import mongoose, { Aggregate } from "mongoose";
+import { z } from "zod"
 import Form from "../models/Form.js";
 import Submission from "../models/Submission.js";
 import { submissionPayloadSchema } from "../validators/submission.validator.js";
@@ -267,5 +267,242 @@ export async function createSubmission(req, res) {
             success: false,
             message: "Unable to submit your answers.",
         });
+    }
+}
+
+// Parse and limit pagination values received from the URL.
+function getPagination(req) {
+    const page = Math.max(
+        1, Number.parseInt(req.query.page, 100) || 1
+    );
+
+    const limit = Math.min(
+        50, Math.max(1, Number.parseInt(req.query.limit, 10) || 10)
+    );
+
+    return {
+        page, limit, skip: (page - 1) * limit,
+    };
+}
+
+// Escape user-provided search text before using it in a regular expression.
+function escapeRegex(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// GET /api/submissions
+// Return a paginated list of submissions.
+export async function getSubmissions(req, res) {
+    try {
+        const { page, limit, skip } = getPagination(req);
+        const filter = {}
+
+        const status = String(req.query.status || "")
+        const allowedStatuses = [
+            "needs_review",
+            "no_issues",
+            "not_checked",
+        ];
+
+        if (status && status !== "all") {
+            if (!allowedStatuses.includes(status)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid submission status filter.",
+                });
+            }
+            filter.validationStatus = status;
+        }
+
+        const search = String(req.query.q || "").trim().slice(0, 100);
+
+        if (search) {
+            filter.formTitle = {
+                $regex: escapeRegex(search),
+                $options: "i",
+            };
+        }
+
+        const [items, total] = await Promise.all([
+            Submission.find(filter)
+                .select("formId formTitle validationStatus issues createdAt")
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+
+            Submission.countDocuments(filter),
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                items,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.ceil(total / limit),
+                },
+            },
+        });
+    } catch (error) {
+        console.error("Get submissions failed: ", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to retrieve submissions.",
+        });
+    }
+}
+
+// GET /api/submissions/:id
+// Return the answers and warnings for one submission.
+export async function getSubmissionById(req, res) {
+    try {
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid submission ID.",
+            });
+        }
+
+        const submission = await Submission.findById(id).lean();
+
+        if (!submission) {
+            return res.status(404).json({
+                success: false,
+                message: "Submission not found.",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: submission,
+        });
+    } catch (error) {
+        console.error("Get submissions details failed: ", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to retrieve submission details.",
+        });
+    }
+}
+
+// GET /api/submissions/stats
+// Calculate the statistics displayed on the dashboard.
+export async function getSubmissionStats(req, res) {
+    try {
+        const [
+            totalSubmissions,
+            needsReview,
+            noIssues,
+            notChecked,
+            submissionsWithIssues,
+        ] = await Promise.all([
+            Submission.countDocuments(),
+
+            Submission.countDocuments({
+                validationStatus: "needs_review",
+            }),
+
+            Submission.countDocuments({
+                validationStatus: "no_issues",
+            }),
+
+            Submission.countDocuments({
+                validationStatus: "not_checked",
+            }),
+
+            // Retrieve only the issue arrays instead of using aggregation.
+            Submission.find({})
+                .select("issues -_id")
+                .lean(),
+        ]);
+
+        // Count all stored issue records.
+        const totalIssues = submissionsWithIssues.reduce(
+            (total, submission) =>
+                total + (submission.issues?.length || 0),
+            0
+        );
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                totalSubmissions,
+                needsReview,
+                noIssues,
+                notChecked,
+                totalIssues,
+            },
+        });
+    } catch (error) {
+        // Log the full error for easier debugging.
+        console.error("Get submission stats failed:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to retrieve submission statistics.",
+        });
+    }
+}
+
+// GET /api/forms/:id/submissions
+// Return submissions belonging to one specific form.
+export async function getSubmissionsForForm(req, res) {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid form ID.",
+            });
+        }
+
+        const form = await Form.findById(id).select("_id");
+
+        if (!form) {
+            return res.status(404).json({
+                success: false,
+                message: "Form not found",
+            });
+        }
+
+        const { page, limit, skip } = getPagination(req);
+        const filter = { formId: id };
+
+        const [items, total] = await Promise.all([
+            Submission.find(filter)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+
+            Submission.countDocuments(filter),
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                items,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.ceil(total / limit),
+                },
+            },
+        });
+    } catch (error) {
+        console.error("Get form submissions failed: ", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to retrieve this form's submissions."
+        })
     }
 }

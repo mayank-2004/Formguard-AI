@@ -4,6 +4,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import formRoutes from "./routes/form.routes.js";
 import publicFormRoutes from "./routes/publicForm.routes.js";
+import submissionRoutes from "./routes/submission.routes.js";
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use(
 
 app.use("/api/forms", formRoutes);
 app.use("/api/public/forms", publicFormRoutes);
+app.use("/api/submissions", submissionRoutes);
 
 // Temporary endpoint to verify that the backend works.
 app.get("/api/health", (req, res) => {
