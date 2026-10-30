@@ -5,6 +5,9 @@ import rateLimit from "express-rate-limit";
 import formRoutes from "./routes/form.routes.js";
 import publicFormRoutes from "./routes/publicForm.routes.js";
 import submissionRoutes from "./routes/submission.routes.js";
+import cookieParser from "cookie-parser"
+import authRoutes from "./routes/auth.routes.js"
+import { requireAuth } from "./middleware/requireAuth.js";
 
 const app = express();
 
@@ -18,6 +21,7 @@ app.use(
 );
 
 app.use(express.json({ limit: "1mb" }));
+app.use(cookieParser());
 
 app.use(
     "/api",
@@ -27,9 +31,15 @@ app.use(
     })
 );
 
-app.use("/api/forms", formRoutes);
+// Authentication endpoints are available before login.
+app.use("/api/auth", authRoutes);
+
+// Respondents can access published forms without signing in.
 app.use("/api/public/forms", publicFormRoutes);
-app.use("/api/submissions", submissionRoutes);
+
+// Management APIs require an authenticated user.
+app.use("/api/forms", requireAuth, formRoutes);
+app.use("/api/submissions", requireAuth, submissionRoutes);
 
 // Temporary endpoint to verify that the backend works.
 app.get("/api/health", (req, res) => {

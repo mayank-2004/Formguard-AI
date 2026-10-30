@@ -246,6 +246,7 @@ export async function createSubmission(req, res) {
         }
 
         const submission = await Submission.create({
+            ownerId: form.ownerId,
             formId: form._id,
             formTitle: form.title,
             answers: normalizedAnswers,
@@ -295,7 +296,9 @@ function escapeRegex(value) {
 export async function getSubmissions(req, res) {
     try {
         const { page, limit, skip } = getPagination(req);
-        const filter = {}
+        const filter = {
+            ownerId: req.user.id,
+        }
 
         const status = String(req.query.status || "")
         const allowedStatuses = [
@@ -368,7 +371,10 @@ export async function getSubmissionById(req, res) {
             });
         }
 
-        const submission = await Submission.findById(id).lean();
+        const submission = await Submission.findOne({
+            _id: id,
+            ownerId: req.user.id,
+        }).lean();
 
         if (!submission) {
             return res.status(404).json({
@@ -402,22 +408,29 @@ export async function getSubmissionStats(req, res) {
             notChecked,
             submissionsWithIssues,
         ] = await Promise.all([
-            Submission.countDocuments(),
+            Submission.countDocuments({
+                ownerId: req.user.id,
+            }),
 
             Submission.countDocuments({
+                ownerId: req.user.id,
                 validationStatus: "needs_review",
             }),
 
             Submission.countDocuments({
+                ownerId: req.user.id,
                 validationStatus: "no_issues",
             }),
 
             Submission.countDocuments({
+                ownerId: req.user.id,
                 validationStatus: "not_checked",
             }),
 
             // Retrieve only the issue arrays instead of using aggregation.
-            Submission.find({})
+            Submission.find({
+                ownerId: req.user.id,
+            })
                 .select("issues -_id")
                 .lean(),
         ]);
@@ -463,7 +476,10 @@ export async function getSubmissionsForForm(req, res) {
             });
         }
 
-        const form = await Form.findById(id).select("_id");
+        const form = await Form.findOne({
+            _id: id,
+            ownerId: req.user.id,
+        }).select("_id");
 
         if (!form) {
             return res.status(404).json({
@@ -473,7 +489,10 @@ export async function getSubmissionsForForm(req, res) {
         }
 
         const { page, limit, skip } = getPagination(req);
-        const filter = { formId: id };
+        const filter = {
+            formId: id,
+            ownerId: req.user.id,
+        };
 
         const [items, total] = await Promise.all([
             Submission.find(filter)

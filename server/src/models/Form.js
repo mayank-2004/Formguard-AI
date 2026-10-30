@@ -120,6 +120,13 @@ const formSchema = new mongoose.Schema(
       enum: ["draft", "published"],
       default: "draft",
     },
+
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
   },
   {
     timestamps: true,

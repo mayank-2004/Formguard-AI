@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 import Form from "../models/Form.js";
 import { formPayloadSchema } from "../validators/form.validator.js";
-import { success } from "zod";
 
 function validateFormPayload(body, res) {
     const result = formPayloadSchema.safeParse(body);
@@ -26,7 +25,10 @@ export async function createForm(req, res) {
 
         if (!payload) return;
 
-        const form  = await Form.create(payload);
+        const form  = await Form.create({
+            ...payload,
+            ownerId: req.user.id,
+        });
 
         return res.status(201).json({
             success: true,
@@ -46,7 +48,9 @@ export async function createForm(req, res) {
 // Retrieve all forms
 export async function getForms(req, res) {
     try {
-        const forms = await Form.find().sort({ updatedAt: -1 });
+        const forms = await Form.find({
+            ownerId: req.user.id,
+        }).sort({ updatedAt: -1 });
 
         return res.status(200).json({
             success: true,
@@ -75,7 +79,10 @@ export async function getFormById(req, res) {
             });
         }
 
-        const form = await Form.findById(id);
+        const form = await Form.findOne({
+            _id: id,
+            ownerId: req.user.id,
+        });
 
         if (!form) {
             return res.status(404).json({
@@ -114,10 +121,17 @@ export async function updateForm(req, res) {
 
         if (!payload) return;
 
-        const form = await Form.findByIdAndUpdate(id, payload, {
-            new: true,
-            runValidators: true,
-        });
+        const form = await Form.findOneAndUpdate(
+            {
+                _id: id,
+                ownerId: req.user.id,
+            },
+            payload,
+            {
+                new: true,
+                runValidators: true,
+            }
+        );
 
         if (!form) {
             return res.status(404).json({
@@ -153,7 +167,10 @@ export async function deleteForm(req, res) {
             });
         }
 
-        const form = await Form.findByIdAndDelete(id);
+        const form = await Form.findOneAndDelete({
+            _id: id,
+            ownerId: req.user.id,
+        });
 
         if (!form) {
             return res.status(404).json({
