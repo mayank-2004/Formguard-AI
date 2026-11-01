@@ -60,8 +60,21 @@ export function evaluateConsistencyRules(form, answerValues) {
 
         if (rule.type === "date_order") {
             if (!isEmpty(sourceValue) && !isEmpty(targetValue)) {
-                if (targetValue < sourceValue) {
-                    message = rule.message ||
+                const startDate = new Date(
+                    `${sourceValue}T00:00:00.000Z`
+                );
+
+                const endDate = new Date(
+                    `${targetValue}T00:00:00.000Z`
+                );
+
+                if (
+                    !Number.isNaN(startDate.getTime()) &&
+                    !Number.isNaN(endDate.getTime()) &&
+                    endDate < startDate
+                ) {
+                    message =
+                        rule.message ||
                         `"${targetField.label}" cannot be earlier than "${sourceField.label}".`;
 
                     severity = "high";
@@ -73,7 +86,7 @@ export function evaluateConsistencyRules(form, answerValues) {
             issues.push({
                 ruleId: rule.ruleId,
                 type: rule.type,
-                fieldIds: [rule.sourceField, rule.targetFieldId],
+                fieldIds: [rule.sourceFieldId, rule.targetFieldId],
                 severity,
                 blocking,
                 message,

@@ -13,4 +13,6 @@ import { z } from "zod"
 export const submissionPayloadSchema = z.object({
     answers: z.record(z.string(), z.unknown()),
     confirmed: z.boolean().default(false),
+    aiConsent: z.boolean().default(false),
+    confirmationToken: z.string().max(30000).optional(),
 }).strict();

@@ -43,7 +43,7 @@ const issueSchema = new mongoose.Schema(
         type: {
             type: String,
             required: true,
-            enum: ["required_if", "conflicts_with", "date_order"],
+            enum: ["required_if", "conflicts_with", "date_order", "ai_contradiction"],
         },
 
         fieldIds: {
@@ -85,6 +85,16 @@ const submissionSchema = new mongoose.Schema(
             type: String,
             enum: ["not_checked", "needs_review", "no_issues"],
             default: "not_checked",
+        },
+        aiCheckStatus: {
+            type: String,
+            enum: [
+                "completed",
+                "not_configured",
+                "not_consented",
+                "failed",
+            ],
+            default: "not_configured",
         },
         issues: {
             type: [issueSchema],

@@ -149,7 +149,9 @@ export default function SubmissionDetails() {
                     </span>
                 </div>
 
-                <div className="mt-6 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-2">
+                <div className="mt-6 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-2 lg:grid-cols-3">
+
+                    {/* Submission date */}
                     <div>
                         <p className="text-sm text-slate-500">
                             Submitted at
@@ -162,6 +164,7 @@ export default function SubmissionDetails() {
                         </p>
                     </div>
 
+                    {/* Number of answers */}
                     <div>
                         <p className="text-sm text-slate-500">
                             Questions answered
@@ -171,6 +174,19 @@ export default function SubmissionDetails() {
                             {answers.length}
                         </p>
                     </div>
+
+                    {/* AI checking status */}
+                    <div>
+                        <p className="text-sm text-slate-500">
+                            AI consistency check
+                        </p>
+
+                        <p className="mt-1 font-medium capitalize">
+                            {(submission.aiCheckStatus || "not_configured")
+                                .replaceAll("_", " ")}
+                        </p>
+                    </div>
+
                 </div>
             </section>
 
@@ -258,13 +274,15 @@ export default function SubmissionDetails() {
                                     <div className="min-w-0 flex-1">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <h3 className="font-semibold text-amber-950">
-                                                {issue.type === "conflicts_with"
-                                                    ? "Potential contradiction"
-                                                    : issue.type === "required_if"
-                                                        ? "Conditional requirement"
-                                                        : issue.type === "date_order"
-                                                            ? "Date order issue"
-                                                            : "Consistency issue"}
+                                                {issue.type === "ai_contradiction"
+                                                    ? "AI-detected possible contradiction"
+                                                    : issue.type === "conflicts_with"
+                                                        ? "Potential contradiction"
+                                                        : issue.type === "required_if"
+                                                            ? "Conditional requirement"
+                                                            : issue.type === "date_order"
+                                                                ? "Date order issue"
+                                                                : "Consistency issue"}
                                             </h3>
 
                                             <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium capitalize text-amber-900">

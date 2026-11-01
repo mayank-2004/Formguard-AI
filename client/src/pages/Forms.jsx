@@ -67,6 +67,7 @@ export default function Forms() {
                     title: form.title,
                     description: form.description || "",
                     fields: form.fields,
+                    consistencyRules: form.consistencyRules || [],
                     status: nextStatus,
                 },
             });

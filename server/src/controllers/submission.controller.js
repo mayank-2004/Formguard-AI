@@ -1,9 +1,48 @@
-import mongoose, { Aggregate } from "mongoose";
+import mongoose from "mongoose";
 import { z } from "zod"
 import Form from "../models/Form.js";
 import Submission from "../models/Submission.js";
 import { submissionPayloadSchema } from "../validators/submission.validator.js";
 import { evaluateConsistencyRules } from "../services/ruleEngine.js";
+import jwt from "jsonwebtoken"
+import { createHash } from "node:crypto"
+import { detectAiContradictions } from "../services/aiChecker.js";
+
+const aiIssueSchema = z.object({
+    ruleId: z.string(),
+    type: z.literal("ai_contradiction"),
+    fieldIds: z.array(z.string()).length(2),
+    severity: z.enum(["low", "medium", "high"]),
+    message: z.string().min(1).max(300),
+});
+
+const confirmationPayloadSchema = z.object({
+    purpose: z.literal("submission-confirmation"),
+    formId: z.string(),
+    answerFingerprint: z.string(),
+    aiCheckStatus: z.enum([
+        "completed",
+        "not_configured",
+        "not_consented",
+        "failed",
+    ]),
+    aiIssues: z.array(aiIssueSchema).max(10),
+});
+
+function createAnswerFingerprint(form, normalizedAnswers) {
+    return createHash("sha256")
+        .update(
+            JSON.stringify({
+                formId: String(form._id),
+                formUpdatedAt: form.updatedAt?.toISOString() || null,
+                answers: normalizedAnswers.map((answer) => [
+                    answer.fieldId,
+                    answer.value,
+                ]),
+            })
+        )
+        .digest("hex");
+}
 
 export async function getPublishedForm(req, res) {
     try {
@@ -216,6 +255,28 @@ export async function createSubmission(req, res) {
 
         const issues = evaluateConsistencyRules(form, answerValues);
 
+        console.log(
+            "DATE RULE CONFIG:",
+            form.consistencyRules.filter(
+                (rule) => rule.type === "date_order"
+            )
+        );
+
+        console.log("DATE ANSWERS:", {
+            source: answerValues[
+                form.consistencyRules.find(
+                    (rule) => rule.type === "date_order"
+                )?.sourceFieldId
+            ],
+            target: answerValues[
+                form.consistencyRules.find(
+                    (rule) => rule.type === "date_order"
+                )?.targetFieldId
+            ],
+        });
+
+        console.log("DETECTED ISSUES:", issues);
+
         const blockingIssues = issues.filter((issue) => issue.blocking);
 
         if (blockingIssues.length > 0) {
@@ -232,18 +293,118 @@ export async function createSubmission(req, res) {
         }
 
         // Only non-blocking warnings can be confirmed and submitted.
-        const warnings = issues.filter((issue) => !issue.blocking);
+        const ruleWarnings = issues.filter(
+            (issue) => !issue.blocking
+        );
 
+        const answerFingerprint = createAnswerFingerprint(
+            form,
+            normalizedAnswers
+        );
+
+        let aiCheck;
+
+        if (parsed.data.confirmed) {
+            // A warning was shown on the previous request.
+            // Verify its signed token instead of calling the AI again.
+            if (!parsed.data.confirmationToken) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Please check your answers again before confirming.",
+                });
+            }
+
+            let decodedToken;
+
+            try {
+                decodedToken = jwt.verify(
+                    parsed.data.confirmationToken,
+                    process.env.JWT_SECRET
+                );
+            } catch {
+                return res.status(400).json({
+                    success: false,
+                    message: "Your confirmation expired. Please check your answers again.",
+                });
+            }
+
+            const parsedToken =
+                confirmationPayloadSchema.safeParse(decodedToken);
+
+            if (!parsedToken.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid confirmation. Please check your answers again.",
+                });
+            }
+
+            const confirmation = parsedToken.data;
+
+            if (
+                confirmation.formId !== String(form._id) ||
+                confirmation.answerFingerprint !== answerFingerprint
+            ) {
+                return res.status(409).json({
+                    success: false,
+                    message:
+                        "Your answers or the form have changed. Please review the form again.",
+                });
+            }
+
+            aiCheck = {
+                status: confirmation.aiCheckStatus,
+                issues: confirmation.aiIssues,
+            };
+        } else if (parsed.data.aiConsent) {
+            // Run AI only when the respondent has opted in.
+            aiCheck = await detectAiContradictions(form, answerValues);
+        } else {
+            aiCheck = {
+                status: "not_consented",
+                issues: [],
+            };
+        }
+
+        const warnings = [
+            ...ruleWarnings,
+            ...aiCheck.issues,
+        ];
+
+        // Warn before saving if any non-blocking issues were found.
         if (warnings.length > 0 && !parsed.data.confirmed) {
+            const confirmationToken = jwt.sign(
+                {
+                    purpose: "submission-confirmation",
+                    formId: String(form._id),
+                    answerFingerprint,
+                    aiCheckStatus: aiCheck.status,
+                    aiIssues: aiCheck.issues,
+                },
+                process.env.JWT_SECRET,
+                { expiresIn: "10m" }
+            );
+
             return res.status(200).json({
                 success: true,
                 data: {
                     requiresConfirmation: true,
-                    message: "Potential inconsistencies were found. Review them before submitting.",
+                    message:
+                        "Potential inconsistencies were found. Review them before submitting.",
                     issues: warnings,
+                    confirmationToken,
+                    aiCheckStatus: aiCheck.status,
                 },
             });
         }
+
+        // If the AI check didn't run successfully and no warnings
+        // exist, do not label the submission as fully checked.
+        const validationStatus =
+            warnings.length > 0
+                ? "needs_review"
+                : aiCheck.status === "completed"
+                    ? "no_issues"
+                    : "not_checked";
 
         const submission = await Submission.create({
             ownerId: form.ownerId,
@@ -251,7 +412,8 @@ export async function createSubmission(req, res) {
             formTitle: form.title,
             answers: normalizedAnswers,
             issues: warnings,
-            validationStatus: warnings.length > 0 ? "needs_review" : "no_issues",
+            validationStatus,
+            aiCheckStatus: aiCheck.status,
         });
 
         return res.status(201).json({
@@ -260,6 +422,9 @@ export async function createSubmission(req, res) {
             data: {
                 id: submission._id,
                 submittedAt: submission.createdAt,
+                issues: submission.issues,
+                validationStatus: submission.validationStatus,
+                aiCheckStatus: submission.aiCheckStatus,
             },
         });
     } catch (error) {
